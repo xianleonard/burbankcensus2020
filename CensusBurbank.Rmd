@@ -6,9 +6,9 @@ output: html_document
 ---
 
 
-```{r libraries echo=F}
-library(dplyr)
+```{r libraries, warning=F, echo=F}
 library(tigris)
+library(crosstalk)
 library(tidyverse)
 library(ggplot2)
 library(sf)
@@ -19,191 +19,174 @@ library(viridis)
 library(leaflet)
 library(ggtext)
 library(rgdal)
+library(tidycensus)
 ```
 
-# Import data (code from Census Bureau)
+# Census API
 
-```{r specify paths}
-header_file_path <- "Data/cageo2020.pl"
-part1_file_path  <- "Data/ca000012020.pl"
-part2_file_path  <- "Data/ca000022020.pl"
-part3_file_path  <- "Data/ca000032020.pl"
+```{r api enter}
+# Make sure your Census API key is in an otherwise empty file in the Data folder titled "CensusAPI.txt"
+# To obtain a key, visit https://api.census.gov/data/key_signup.html
+API <- read_file("Data/CensusAPI.txt")
+census_api_key(API)
 ```
 
-```{r import census data}
-header <- read.delim(header_file_path, header=FALSE, colClasses="character", sep="|")
-part1  <- read.delim(part1_file_path,  header=FALSE, colClasses="character", sep="|")
-part2  <- read.delim(part2_file_path,  header=FALSE, colClasses="character", sep="|")
-part3  <- read.delim(part3_file_path,  header=FALSE, colClasses="character", sep="|")
+# Import 2020 data
+
+
+```{r download-2020-data}
+variables2020 <- c("P1_001N", "P1_002N", "P1_009N", "P2_005N", "P2_006N", 'P2_007N', 'P2_008N', 'P2_009N', 'P2_010N', "P2_002N", "H1_001N")
+# Above variables are total population, population of both "one race" and "two or more races" categories, population of each non-Hispanic single-race Census racial groups (including American Indian/Alaska Native and Native Hawaiian/Pacific Islander), population of Hispanic respondents and number of housing units.
+# For a tbl of all possible variables, uncomment and run the code below:
+# variablelist <- load_variables(2020, "pl")
+
+LA2020 <- get_decennial(geography="tract", year=2020, state=06, county=037, variables=variables2020, geometry=T, output="wide")
+
+# Note the warning about the 2020 Census' intentional errors. This is particularly important for racial groups with low populations in Burbank.
 ```
 
-```{r colnames}
+## Filter to Burbank 
 
-colnames(header) <- c("FILEID", "STUSAB", "SUMLEV", "GEOVAR", "GEOCOMP", "CHARITER", "CIFSN", "LOGRECNO", "GEOID","GEOCODE", "REGION", "DIVISION", "STATE", "STATENS", "COUNTY", "COUNTYCC", "COUNTYNS", "COUSUB", "COUSUBCC", "COUSUBNS", "SUBMCD", "SUBMCDCC", "SUBMCDNS", "ESTATE", "ESTATECC", "ESTATENS", "CONCIT", "CONCITCC", "CONCITNS", "PLACE", "PLACECC", "PLACENS", "TRACT", "BLKGRP", "BLOCK", "AIANHH", "AIHHTLI", "AIANHHFP", "AIANHHCC", "AIANHHNS", "AITS", "AITSFP", "AITSCC", "AITSNS", "TTRACT", "TBLKGRP", "ANRC", "ANRCCC", "ANRCNS", "CBSA", "MEMI", "CSA", "METDIV", "NECTA", "NMEMI", "CNECTA", "NECTADIV", "CBSAPCI", "NECTAPCI", "UA", "UATYPE", "UR", "CD116", "CD118", "CD119", "CD120", "CD121", "SLDU18", "SLDU22", "SLDU24", "SLDU26", "SLDU28", "SLDL18", "SLDL22", "SLDL24", "SLDL26", "SLDL28", "VTD", "VTDI", "ZCTA", "SDELM", "SDSEC", "SDUNI", "PUMA", "AREALAND", "AREAWATR", "BASENAME", "NAME", "FUNCSTAT", "GCUNI", "POP100", "HU100", "INTPTLAT", "INTPTLON", "LSADC", "PARTFLAG", "UGA")
-colnames(part1) <- c("FILEID", "STUSAB", "CHARITER", "CIFSN", "LOGRECNO", 
-                     paste0("P00", c(10001:10071, 20001:20073)))
-colnames(part2) <- c("FILEID", "STUSAB", "CHARITER", "CIFSN", "LOGRECNO", 
-                     paste0("P00", c(30001:30071, 40001:40073)), 
-                     paste0("H00", 10001:10003))
-colnames(part3) <- c("FILEID", "STUSAB", "CHARITER", "CIFSN", "LOGRECNO",
-                     paste0("P00", 50001:50010))
-```
+```{r Burbank-2020-tracts}
 
-```{r merge and order}
-
-combine <- Reduce(function(x,y) {merge(x, y, by=c("LOGRECNO", "STUSAB", "FILEID", "CHARITER"))}, list(header[,-7], part1[,-4], part2[,-4], part3))
-combine <- combine[order(combine$LOGRECNO), c("FILEID", "STUSAB", "SUMLEV", "GEOVAR", "GEOCOMP", "CHARITER", "CIFSN", "LOGRECNO", "GEOID", "GEOCODE", "REGION", "DIVISION", "STATE", "STATENS", "COUNTY", "COUNTYCC", "COUNTYNS", "COUSUB", "COUSUBCC", "COUSUBNS", "SUBMCD", "SUBMCDCC", "SUBMCDNS", "ESTATE", "ESTATECC", "ESTATENS", "CONCIT", "CONCITCC", "CONCITNS", "PLACE", "PLACECC", "PLACENS", "TRACT", "BLKGRP", "BLOCK", "AIANHH", "AIHHTLI", "AIANHHFP", "AIANHHCC", "AIANHHNS", "AITS", "AITSFP", "AITSCC", "AITSNS", "TTRACT", "TBLKGRP", "ANRC", "ANRCCC", "ANRCNS", "CBSA", "MEMI", "CSA", "METDIV", "NECTA", "NMEMI", "CNECTA", "NECTADIV", "CBSAPCI", "NECTAPCI", "UA", "UATYPE", "UR", "CD116", "CD118", "CD119", "CD120", "CD121", "SLDU18", "SLDU22", "SLDU24", "SLDU26", "SLDU28", "SLDL18", "SLDL22", "SLDL24", "SLDL26", "SLDL28", "VTD", "VTDI", "ZCTA", "SDELM", "SDSEC", "SDUNI", "PUMA", "AREALAND", "AREAWATR", "BASENAME", "NAME", "FUNCSTAT", "GCUNI", "POP100", "HU100", "INTPTLAT", "INTPTLON", "LSADC", "PARTFLAG", "UGA", paste0("P00", c(10001:10071, 20001:20073)), paste0("P00", c(30001:30071, 40001:40073)), paste0("H00", 10001:10003), paste0("P00", 50001:50010))]
-
-rownames(combine) <- 1:nrow(combine)
-```
-
-# CA-specific stuff
-
-```{r filter to CA}
-
-CAtractsPop <- filter(combine, SUMLEV=="140")
-```
-
-```{r import CA shapefile}
-
-# From https://www.census.gov/cgi-bin/geo/shapefiles/index.php
-CAtractsLocation <- "Data/tl_2020_06_tract.shp"
-CAtracts <- st_read(CAtractsLocation)
-```
-
-```{r join CA population/shapefile}
-
-CAtractsFilled <- left_join(CAtractsPop, CAtracts, by=c("GEOCODE"="GEOID"))
-```
-
-# Burbank-specific stuff
-
-```{r Burbank 2020 tracts}
-
-BURTracts <- c(3101, 3102.01, 3102.02, 3103, 3104, 3105.01, 3106.01, 3106.02, 3107.01, 3107.02, 3107.03, 3107.04, 3107.05, 3108, 3109, 3110, 3111, 3112, 3113, 3114, 3115, 3116, 3116.01, 3116.02, 3117, 3118.01, 3118.02, 9800.01)
+BURTractsNumbers <- c('3101', '3102.01', '3102.02', '3103', '3104', '3105.01', '3106.01', '3106.02', "3107.01", '3107.02', '3107.03', '3107.04', '3107.05', '3108', '3109', '3110', '3111', '3112', '3113', '3114', '3115', '3116', '3116.01', '3116.02', '3117', '3118.01', '3118.02', '9800.01')
 
 # Filters CA data to only tract-level Burbank data
-BURtractsFilled <- filter(CAtractsFilled, BASENAME %in% BURTracts, CSA=="348")
+BURTracts <- filter(LA2020, if_any(NAME, str_detect, paste0(BURTractsNumbers, collapse="|")))
 
-# Keep desired cols
-BURcols.num <- c("P0010001", "P0010009", "P0020002", "P0020005", "P0020006", "P0020008", "HU100")
-BURtractsSelected2020 <- select(BURtractsFilled, BASENAME, all_of(BURcols.num), geometry)
-
-# Convert pop cols to numeric
-BURtractsSelected2020[BURcols.num] <- sapply(BURtractsSelected2020[BURcols.num], as.numeric)
-
-## Rename cols
-BURtractsSelected2020 <- BURtractsSelected2020 %>%
-  rename(Total = P0010001, TwoMoreRacesAll = P0010009, Hispanic = P0020002, WhiteAlone = P0020005, BlackAlone = P0020006, AsianAlone = P0020008, HousingUnits = HU100)
+# Rename cols
+BURTractsRenamed <- BURTracts %>%
+  rename(Total = P1_001N, OneRace = P1_002N, TwoMoreRacesAll = P1_009N, WhiteAlone = P2_005N, BlackAlone = P2_006N, AIAN_Alone = P2_007N, AsianAlone=P2_008N, NHPI_Alone = P2_009N, OtherRaceAlone = P2_010N, HispanicAll = P2_002N, HousingUnits = H1_001N)
 
 ```
 
-# Add 2010 Burbank data
+## Recombine tracts
 
-```{r Burbank 2010 pop data}
-
-# Import (file contains LA County tracts with specified variables)
-Census2010 <- read.csv("Data/LACcensus2010.csv")
-
-# Filter to Burbank
-Census2010$Name <- str_sub(Census2010$LSAD_NAME, 14, -1) # Fixes name for easier joining later
-Census2010 <- select(Census2010, -LSAD_NAME, -tract, -county, -state)
-BURtracts2010 <- filter(Census2010, Name %in% BURTracts) %>% 
-  rename(Total = P001001, TwoMoreRacesAll = P001009, Hispanic = P002002, WhiteAlone = P002005, BlackAlone = P002006, AsianAlone = P002008, HousingUnits = H001001) # Renames cols
-
-```
-
-```{r Burbank 2010 shapefiles}
-
-# Import 2010 shapefiles
-CAtractsLocation2010 <- "Data/tl_2010_06037_tract10.shp"
-CAtracts2010 <- st_read(CAtractsLocation2010)
-
-```
-
-```{r join 2010 pop data and SFs}
-
-BURtracts2010_filled <- left_join(BURtracts2010, CAtracts2010, by=c("Name" = "NAME10"))
-
-```
-
-```{r combine 2020 SFs}
+```{r recombine}
 
 # The Bureau split up two of Burbank's tracts — 3107.02 (becoming 3107.04 and 3107.05) and 3116 (becoming 3116.01 and 3116.02) — between 2010 and 2020. We're going to recombine the new tracts for easier comparison between the releases.
 
-BURtractsReformed2020 <- BURtractsSelected2020
+BURTractsReformed <- BURTractsRenamed
 
-BURtractsReformed2020 <- BURtractsReformed2020 %>% 
-  mutate(BASENAME=str_replace(BASENAME, "3107.04", "3107.02"),
-         BASENAME=str_replace(BASENAME, "3107.05", "3107.02"),
-         BASENAME=str_replace(BASENAME, "3116.01", "3116"),
-         BASENAME=str_replace(BASENAME, "3116.02", "3116")) %>% 
+BURTractsReformed <- BURTractsReformed %>% 
+  mutate(NAME=str_replace(NAME, "3107.04", "3107.02"),
+         NAME=str_replace(NAME, "3107.05", "3107.02"),
+         NAME=str_replace(NAME, "3116.01", "3116"),
+         NAME=str_replace(NAME, "3116.02", "3116")) %>% 
   select(-geometry)
 
-BURtractsReformed2020 <- BURtractsReformed2020 %>% 
-  group_by(BASENAME) %>% 
+BURTractsReformed <- BURTractsReformed %>% 
+  group_by(NAME) %>% 
   summarize(Total=sum(Total),
+            OneRace=sum(OneRace),
             TwoMoreRacesAll = sum(TwoMoreRacesAll),
-            Hispanic=sum(Hispanic),
             WhiteAlone = sum(WhiteAlone),
             BlackAlone = sum(BlackAlone),
+            AIAN_Alone = sum(AIAN_Alone),
             AsianAlone = sum(AsianAlone),
+            NHPI_Alone = sum(NHPI_Alone),
+            OtherRaceAlone = sum(OtherRaceAlone),
+            HispanicAll = sum(HispanicAll),
             HousingUnits = sum(HousingUnits))
+
 ```
 
-```{r Combine decades}
+# Import 2010 data
+
+```{r download-2010-data}
+
+variables2010 <- c("P001001", "P008002", 'P008009', 'P005003', 'P005004', 'P005005', 'P005006', 'P005007', 'P005008', 'P004003', 'H001001')
+# For a tbl of all possible variables, uncomment and run the code below:
+# variablelist2010 <- load_variables(2010, "sf1")
+
+LA2010 <- get_decennial(geography="tract", year=2010, state=06, county=037, variables=variables2010, geometry=T, output="wide")
+
+
+```
+
+## Filter to Burbank
+
+```{r Burbank-2010-tracts}
+# Filter to Burbank
+BURTracts2010 <- filter(LA2010, if_any(NAME, str_detect, paste0(BURTractsNumbers, collapse="|")))
+
+# Rename cols
+BURTracts2010_renamed <- rename(BURTracts2010,
+                                Total = P001001, OneRace = P008002, TwoMoreRacesAll = P008009, WhiteAlone = P005003, BlackAlone = P005004, AIAN_Alone = P005005, AsianAlone = P005006, NHPI_Alone = P005007, OtherRaceAlone = P005008, HispanicAll = P004003, HousingUnits = H001001) # Renames cols
+
+
+```
+
+# Combine
+
+```{r combine-decades}
 # Joins 2010 with 2020 data
-
-BURtractsReformedcombo <- left_join(BURtractsReformed2020, BURtracts2010_filled, by=c("BASENAME" = "Name"), suffix=c(".new", ".old"))
-
+# The code is a bit wonky because using st_join() will match up/duplicate rows incorrectly
+CensusComplete <- left_join(as.data.frame(BURTractsReformed), as.data.frame(BURTracts2010_renamed), by="NAME", suffix=c(".new", ".old"))
+CensusComplete <- CensusComplete %>% 
+  select(-geometry.old, -GEOID) %>% 
+  rename(geometry=geometry.new)
 ```
 
 # Percentage changes
 
-```{r flat difference}
+```{r flat-difference}
 # To identify which tracts had the greatest percentage population change from 2010 to 2020, we need to first figure out the numerical differences for each tract.
 
-BURtractschanges <- BURtractsReformedcombo %>% 
+CensusChanges <- CensusComplete %>% 
   mutate(Total.change = Total.new-Total.old,
+         OneRace.change = OneRace.new - OneRace.old,
          TwoMoreRacesAll.change = TwoMoreRacesAll.new - TwoMoreRacesAll.old,
-         Hispanic.change = Hispanic.new - Hispanic.old,
          WhiteAlone.change = WhiteAlone.new - WhiteAlone.old,
          BlackAlone.change = BlackAlone.new - BlackAlone.old,
+         AIAN_Alone.change = AIAN_Alone.new - AIAN_Alone.old,
          AsianAlone.change = AsianAlone.new - AsianAlone.old,
+         NHPI_Alone.change = NHPI_Alone.new - NHPI_Alone.old,
+         OtherRaceAlone.change = OtherRaceAlone.new - OtherRaceAlone.old,
+         HispanicAll.change = HispanicAll.new - HispanicAll.old,
          HousingUnits.change = HousingUnits.new - HousingUnits.old)
 
 ```
 
 ```{r percentage difference}
 
-BURtractsPC <- BURtractschanges %>% 
+CensusPC <- CensusChanges %>% 
   mutate(Total.pct.change = round(Total.change/Total.old*100, digits=1),
+         OneRace.pct.change = round(OneRace.change/OneRace.old*100, digits=1),
          TwoMoreRaces.pct.change = round(TwoMoreRacesAll.change/TwoMoreRacesAll.old*100, digits=1),
-         Hispanic.pct.change = round(Hispanic.change/Hispanic.old*100, digits=1),
          WhiteAlone.pct.change = round(WhiteAlone.change/WhiteAlone.old*100, digits=1),
          BlackAlone.pct.change = round(BlackAlone.change/BlackAlone.old*100, digits=1),
+         AIAN_Alone.pct.change = round(AIAN_Alone.change/AIAN_Alone.old*100, digits=1),
          AsianAlone.pct.change = round(AsianAlone.change/AsianAlone.old*100, digits=1),
+         NHPI_Alone.pct.change = round(NHPI_Alone.change/NHPI_Alone.old*100, digits=1),
+         OtherRaceAlone.pct.change = round(OtherRaceAlone.change/OtherRaceAlone.old*100, digits=1),
+         HispanicAll.pct.change = round(HispanicAll.change/HispanicAll.old*100, digits=1),
          HousingUnits.pct.change = round(HousingUnits.change/HousingUnits.old*100, digits=1))
 
 ```
 
-# Visualization
+# Visualizations
 
-```{r leaflet setup}
+```{r leaflet-setup}
 # Removes airport tract (no reliable population data, and the N/A messes up the Leaflet)
-leaflet_data <- BURtractsPC
+leaflet_data <- CensusPC
 leaflet_data <- leaflet_data[-c(24),]
+
+# Uniform CRS
+leaflet_data$geometry <- leaflet_data$geometry %>% 
+  st_transform("+proj=longlat +datum=WGS84")
 
 # Palette
 pal <- colorNumeric("Blues", domain=leaflet_data$Total.pct.change)
 
 # Pop-up text
 popup <- paste0("<b>Pop. Increase: </b>", as.character(leaflet_data$Total.pct.change), "%", "<br/>", "2010 Population: ", as.character(leaflet_data$Total.old), "<br/>", "2020 Population: ", as.character(leaflet_data$Total.new), "<br/>", "<b>Housing Unit Increase: </b>", as.character(leaflet_data$HousingUnits.pct.change), "%", "<br/>", "2010 Housing Unit Count: ", as.character(leaflet_data$HousingUnits.old), "<br/>", "2020 Housing Unit Count: ", as.character(leaflet_data$HousingUnits.new))
+
 ```
 
-```{r leaflet run}
+```{r leaflet-run}
 
-leaflet() %>% 
+map <- leaflet() %>% 
   addTiles() %>%
   setView(-118.32215002962275, 34.187441982489034, zoom=13) %>% 
   addPolygons(data=leaflet_data$geometry,
